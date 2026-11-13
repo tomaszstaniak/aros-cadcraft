@@ -13,3 +13,13 @@ exist; the `.rc` files hold each command's return code.
 
 In the AROS Shell an asterisk inside quotes is an escape character: a `*` in a command's text
 is written `**`.
+
+Other scripts, run the same way after `run-smoke` or on their own payload:
+
+- `run-gl`: one start with `--gui-renderer GPU` and a screenshot.
+- `run-pkg <results> <machine>`, then `run-pkg-remove`: the release archive installed, verified,
+  used and removed with apkg from a local index. Payload in `RAM:t`: `apkg`, `cc.zip` (the
+  archive), `idx.json` (a test index naming it), `steps-pkg.json`, `steps-pkg2.json`.
+- `run-public <results> <machine>`: the same from the public catalogue; needs the network.
+- `run-probe`: `tests/tools/open-probe` (built with `craft.py build --tool open-probe`), which
+  prints the error a missing file gives when it is opened.

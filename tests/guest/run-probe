@@ -1,0 +1,11 @@
+.KEY RUNDIR/A
+.BRA [
+.KET ]
+; open-probe: the error a missing file gives. Execute RAM:cc/run-probe <results directory>
+FailAt 21
+Protect RAM:cc/open-probe +e
+RAM:cc/open-probe RAM:cc/probe-a >[RUNDIR]/probe-dos.txt
+Echo $RC >[RUNDIR]/probe-dos.rc
+RAM:cc/open-probe /RAM/cc/probe-b >[RUNDIR]/probe-nix.txt
+Echo $RC >[RUNDIR]/probe-nix.rc
+Echo "done" >[RUNDIR]/probe-done.txt

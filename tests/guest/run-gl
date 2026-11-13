@@ -1,0 +1,14 @@
+.KEY RUNDIR/A
+.BRA [
+.KET ]
+; CADCraft with OpenGL asked for (GUI_RENDERER GPU): one start with a drawing and a screenshot.
+; Run after run-smoke (it uses RAM:cc/bracket.dxf): Execute RAM:cc/run-gl <results directory>
+FailAt 21
+SetEnv RUST_LOG info
+SetEnv CADCRAFT_CONFIG_DIR RAM:cc/data
+SetEnv CADCRAFT_LOG RAM:cc/log-gl.txt
+RAM:cc/CADCraft --gui-renderer GPU --window 780x540 --screenshot RAM:cc/shot-gl.png --screenshot-frames 4 RAM:cc/bracket.dxf
+Echo $RC >[RUNDIR]/shot-gl.rc
+Copy RAM:cc/shot-gl.png [RUNDIR]/shot-gl.png
+Copy RAM:cc/log-gl.txt [RUNDIR]/log-gl.txt
+Echo "done" >[RUNDIR]/gl-done.txt

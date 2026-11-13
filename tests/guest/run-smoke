@@ -1,0 +1,69 @@
+.KEY RUNDIR/A
+.BRA [
+.KET ]
+; CADCraft smoke run: CLI, three GUI starts, a scripted edit saved and read back.
+; Unpack the payload to RAM:cc, then: Execute RAM:cc/run-smoke <results directory>
+FailAt 21
+Protect RAM:cc/cadcraft-cli +e
+Protect RAM:cc/CADCraft +e
+SetEnv RUST_LOG info
+SetEnv CADCRAFT_CONFIG_DIR RAM:cc/data
+Echo "start" >[RUNDIR]/start.txt
+RAM:cc/cadcraft-cli --version >[RUNDIR]/cli-version.txt
+Echo $RC >[RUNDIR]/cli-version.rc
+RAM:cc/cadcraft-cli sample bracket RAM:cc/bracket.dxf >[RUNDIR]/cli-sample.txt
+Echo $RC >[RUNDIR]/cli-sample.rc
+RAM:cc/cadcraft-cli info RAM:cc/bracket.dxf --compact >[RUNDIR]/cli-info.txt
+Echo $RC >[RUNDIR]/cli-info.rc
+RAM:cc/cadcraft-cli convert RAM:cc/bracket.dxf RAM:cc/bracket.dwg >[RUNDIR]/cli-dwg.txt
+Echo $RC >[RUNDIR]/cli-dwg.rc
+RAM:cc/cadcraft-cli info RAM:cc/bracket.dwg --compact >[RUNDIR]/cli-info-dwg.txt
+Echo $RC >[RUNDIR]/cli-info-dwg.rc
+RAM:cc/cadcraft-cli convert RAM:cc/bracket.dxf RAM:cc/bracket.png >[RUNDIR]/cli-png.txt
+Echo $RC >[RUNDIR]/cli-png.rc
+RAM:cc/cadcraft-cli convert RAM:cc/bracket.dxf RAM:cc/bracket.pdf >[RUNDIR]/cli-pdf.txt
+Echo $RC >[RUNDIR]/cli-pdf.rc
+RAM:cc/cadcraft-cli convert RAM:cc/bracket.dxf RAM:cc/bracket.svg >[RUNDIR]/cli-svg.txt
+Echo $RC >[RUNDIR]/cli-svg.rc
+RAM:cc/cadcraft-cli run RAM:cc/bracket.dxf --script "line 0,0 40,25 " --save RAM:cc/edited.dxf >[RUNDIR]/cli-run.txt
+Echo $RC >[RUNDIR]/cli-run.rc
+; Save over the file just written: an existing destination must be replaced.
+RAM:cc/cadcraft-cli run RAM:cc/edited.dxf --script "circle 10,10 5" --save RAM:cc/edited.dxf --in-place >[RUNDIR]/cli-run2.txt
+Echo $RC >[RUNDIR]/cli-run2.rc
+RAM:cc/cadcraft-cli info RAM:cc/edited.dxf --compact >[RUNDIR]/cli-info2.txt
+Echo $RC >[RUNDIR]/cli-info2.rc
+RAM:cc/cadcraft-cli mcp <RAM:cc/mcp-in.txt >[RUNDIR]/cli-mcp.txt
+Echo $RC >[RUNDIR]/cli-mcp.rc
+Echo "cli done" >[RUNDIR]/cli-done.txt
+; GUI: version, then a start with a file, a start with the sample, and the scripted edit.
+RAM:cc/CADCraft --version >[RUNDIR]/gui-version.txt
+Echo $RC >[RUNDIR]/gui-version.rc
+Avail FLUSH >[RUNDIR]/avail0.txt
+SetEnv CADCRAFT_LOG RAM:cc/log-1.txt
+RAM:cc/CADCraft --window 780x540 --screenshot RAM:cc/shot1.png --screenshot-frames 12 RAM:cc/bracket.dxf
+Echo $RC >[RUNDIR]/shot1.rc
+Avail FLUSH >[RUNDIR]/avail1.txt
+SetEnv CADCRAFT_LOG RAM:cc/log-2.txt
+RAM:cc/CADCraft --window 780x540 --sample --screenshot RAM:cc/shot2.png --screenshot-frames 12
+Echo $RC >[RUNDIR]/shot2.rc
+Avail FLUSH >[RUNDIR]/avail2.txt
+SetEnv CADCRAFT_LOG RAM:cc/log-3.txt
+RAM:cc/CADCraft --window 780x540 --test-steps RAM:cc/steps.json RAM:cc/bracket.dwg
+Echo $RC >[RUNDIR]/steps.rc
+Avail FLUSH >[RUNDIR]/avail3.txt
+RAM:cc/cadcraft-cli info RAM:cc/gui-saved.dxf --compact >[RUNDIR]/gui-saved-info.txt
+Echo $RC >[RUNDIR]/gui-saved-info.rc
+List RAM:cc ALL >[RUNDIR]/list.txt
+Copy RAM:cc/shot1.png [RUNDIR]/shot1.png
+Copy RAM:cc/shot2.png [RUNDIR]/shot2.png
+Copy RAM:cc/steps-a.png [RUNDIR]/steps-a.png
+Copy RAM:cc/steps-b.png [RUNDIR]/steps-b.png
+Copy RAM:cc/log-1.txt [RUNDIR]/log-1.txt
+Copy RAM:cc/log-2.txt [RUNDIR]/log-2.txt
+Copy RAM:cc/log-3.txt [RUNDIR]/log-3.txt
+Copy RAM:cc/gui-saved.dxf [RUNDIR]/gui-saved.dxf
+Copy RAM:cc/edited.dxf [RUNDIR]/edited.dxf
+Copy RAM:cc/bracket.png [RUNDIR]/bracket.png
+Copy RAM:cc/bracket.pdf [RUNDIR]/bracket.pdf
+Copy RAM:cc/bracket.dwg [RUNDIR]/bracket.dwg
+Echo "done" >[RUNDIR]/done.txt

@@ -1,0 +1,16 @@
+{
+  "comment": "The app this Craft port builds. scripts/craft.py runs the shared Craft tools pinned in scripts/tooling.json; they read only this file for app-specific names.",
+  "id": "cadcraft",
+  "name": "CADCraft",
+  "env_prefix": "CADCRAFT",
+  "packages": {
+    "cadcraft-aros": "CADCraft",
+    "cadcraft-cli": "cadcraft-cli"
+  },
+  "tools": {
+    "open-probe": [
+      "tests/tools/open-probe",
+      "open-probe"
+    ]
+  }
+}

@@ -1,0 +1,835 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tomaszstaniak <68373859+tomaszstaniak@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 01:50:04 +0100
+Subject: [PATCH] AROS: host CADCraft in an Intuition window through egui-aros
+
+apps/cadcraft-aros is the desktop app's counterpart on AROS: CadApp runs in one Intuition window through egui-aros (winit and egui-winit for the window and input, the CPU renderer or OpenGL chosen at run time with --gui-renderer or the GUI_RENDERER ToolType, ASL requesters, the system clipboard's text). Start-up data (Workbench arguments, ToolTypes, the program's drawer, absolute document names) comes from egui-aros too; this crate has no unsafe code.
+
+The workspace file, settings, autosave files, the LISP support folder and the log live in CADCraftData in the program's drawer. The program runs in the -nix path mode and converts names at the requesters. The loop has no idle poll. The drawing area is drawn through egui: the wgpu canvas is not set up. Not here: the control server, the DWG worker process, 3D mice, the self-updater and a native window per floating panel. --screenshot and --test-steps are test aids.
+---
+ apps/cadcraft-aros/Cargo.toml      |  36 ++
+ apps/cadcraft-aros/src/main.rs     | 643 +++++++++++++++++++++++++++++
+ apps/cadcraft-aros/src/services.rs | 121 ++++++
+ 3 files changed, 800 insertions(+)
+ create mode 100644 apps/cadcraft-aros/Cargo.toml
+ create mode 100644 apps/cadcraft-aros/src/main.rs
+ create mode 100644 apps/cadcraft-aros/src/services.rs
+
+diff --git a/apps/cadcraft-aros/Cargo.toml b/apps/cadcraft-aros/Cargo.toml
+new file mode 100644
+index 0000000000000000000000000000000000000000..e0fdba6e30a25ac0051bb8e35b8a4520616921b9
+--- /dev/null
++++ b/apps/cadcraft-aros/Cargo.toml
+@@ -0,0 +1,36 @@
++[package]
++name = "cadcraft-aros"
++description = "CADCraft on AROS: the egui interface in an Intuition window, through egui-aros"
++version.workspace = true
++edition.workspace = true
++license.workspace = true
++publish = false
++
++# The window, input, renderers, requesters, clipboard, character set and start-up data come
++# from egui-aros (shared by the Craft AROS ports); this crate has no `unsafe` code of its own.
++[lints]
++workspace = true
++
++[[bin]]
++name = "CADCraft"
++path = "src/main.rs"
++
++[dependencies]
++cadcraft-engine = { workspace = true }
++cadcraft-ui-egui = { workspace = true }
++cadcraft-io = { workspace = true }
++egui = { workspace = true }
++# Built from a pinned egui-aros commit with its crate patches: see the port's scripts/craft.py.
++# OpenGL is compiled in and chosen at run time (CPU, AUTO or GPU).
++egui-aros = { version = "0.1", features = ["asl", "glow"] }
++# Its minimum_stack! macro (egui_aros::startup is the same crate).
++aros-startup = "0.1"
++serde_json = { workspace = true }
++log = { workspace = true }
++# --screenshot writes PNG.
++image = { workspace = true }
++
++# The patched rayon-core (see the AROS port's crate patches) can end the global pool's threads,
++# which AROS's pthread library otherwise waits for forever when the program exits.
++[target.'cfg(target_os = "aros")'.dependencies]
++rayon-core = "1.13"
+diff --git a/apps/cadcraft-aros/src/main.rs b/apps/cadcraft-aros/src/main.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..c1b3cef613735569b979af28be4dd3a8d5e080ca
+--- /dev/null
++++ b/apps/cadcraft-aros/src/main.rs
+@@ -0,0 +1,643 @@
++//! CADCraft on AROS.
++//!
++//! The egui interface (`cadcraft-ui-egui`) runs in an Intuition window through egui-aros: winit
++//! and egui-winit for the window and input, the CPU renderer or OpenGL for the pixels (chosen at
++//! run time: `--gui-renderer`, ToolType `GUI_RENDERER`), ASL for files, the system clipboard for
++//! text. The engine, drawings and file formats are the same as on the other platforms; this file
++//! and `services` follow the desktop app (apps/cadcraft/src/main.rs). The drawing area is drawn
++//! through egui (the wgpu canvas needs a wgpu surface, which AROS does not have). Not here: the
++//! localhost control server (`--control`), the DWG worker process, 3D mice, the self-updater and
++//! a native window per floating panel.
++//!
++//! `--screenshot <file>` writes the window's pixels after `--screenshot-frames` frames (20 by
++//! default) and quits: a way to look at the interface where no display can be watched.
++//! `--window` sets the inner size. Settings and the log are kept in `CADCraftData` in the
++//! program's drawer (or `CADCRAFT_CONFIG_DIR`).
++#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
++
++// The desktop app's environment reader: only its tests of the workspace file use it here.
++#[cfg(test)]
++#[allow(dead_code)]
++#[path = "../../cadcraft/src/env.rs"]
++mod env;
++mod services;
++// The desktop app's workspace file (dock layout, shown panels), unchanged.
++#[path = "../../cadcraft/src/workspace.rs"]
++mod workspace;
++
++use std::cell::RefCell;
++use std::path::{Path, PathBuf};
++use std::rc::Rc;
++use std::sync::Mutex;
++use std::time::Duration;
++
++use cadcraft_ui_egui::CadApp;
++use egui_aros::{launch, startup};
++
++/// The release name packaging gives (`--version`, the log), else the crate version.
++const RELEASE: &str = match option_env!("CADCRAFT_RELEASE") {
++    Some(r) => r,
++    None => env!("CARGO_PKG_VERSION"),
++};
++const TARGET: &str = match option_env!("CADCRAFT_BUILD_TARGET") {
++    Some(t) => t,
++    None => "aros",
++};
++
++const USAGE: &str = "\
++CADCraft for AROS
++
++Usage: CADCraft [--gui-renderer CPU|AUTO|GPU] [--sample] [--window <w>x<h>]
++                [--screenshot <file.png> [--screenshot-frames <n>]] [--test-steps <file.json>] [FILE...]
++";
++
++/// The settings the desktop app keeps in eframe's storage, here one JSON file of key to text.
++const SETTINGS_FILE: &str = "settings.json";
++
++struct Logger;
++
++impl log::Log for Logger {
++    fn enabled(&self, metadata: &log::Metadata) -> bool {
++        metadata.level() <= log::max_level()
++    }
++
++    fn log(&self, record: &log::Record) {
++        if self.enabled(record.metadata()) {
++            log_line(&format!("{} {}: {}", record.level(), record.target(), record.args()));
++        }
++    }
++
++    fn flush(&self) {}
++}
++
++static LOGGER: Logger = Logger;
++
++/// The log file: `CADCRAFT_LOG` if set, else `CADCraft.log` in the settings folder. A program
++/// started from Workbench has no console, and the AROS Shell cannot redirect a command's error
++/// output, so a failure would otherwise leave nothing to read. Shell starts also print it.
++static LOG_FILE: std::sync::OnceLock<Option<Mutex<std::fs::File>>> = std::sync::OnceLock::new();
++static SHELL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
++
++fn log_line(line: &str) {
++    use std::io::Write;
++    let file = LOG_FILE.get_or_init(|| {
++        let path = std::env::var_os("CADCRAFT_LOG").filter(|p| !p.is_empty()).map(PathBuf::from).or_else(|| config_dir().map(|d| d.join("CADCraft.log")))?;
++        std::fs::OpenOptions::new().create(true).append(true).open(path).ok().map(Mutex::new)
++    });
++    if let Some(file) = file {
++        let mut file = file.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
++        let _ = writeln!(file, "cadcraft: {line}");
++        let _ = file.flush();
++    }
++    if SHELL.load(std::sync::atomic::Ordering::Relaxed) || file.is_none() {
++        let _ = writeln!(std::io::stderr(), "cadcraft: {line}");
++    }
++}
++
++fn install_logger() {
++    let level = match std::env::var("RUST_LOG").ok().as_deref().map(str::trim) {
++        Some("trace") => log::LevelFilter::Trace,
++        Some("debug") => log::LevelFilter::Debug,
++        Some("warn") => log::LevelFilter::Warn,
++        Some("error") => log::LevelFilter::Error,
++        Some("off") => log::LevelFilter::Off,
++        _ => log::LevelFilter::Info,
++    };
++    // Log every panic before the default hook prints it, so it also reaches the log file.
++    let default_hook = std::panic::take_hook();
++    std::panic::set_hook(Box::new(move |info| {
++        log::error!("CADCraft internal error: {info}");
++        default_hook(info);
++    }));
++    if log::set_logger(&LOGGER).is_ok() {
++        log::set_max_level(level);
++    }
++}
++
++struct Options {
++    files: Vec<String>,
++    sample: bool,
++    window: Option<(i32, i32)>,
++    screenshot: Option<String>,
++    screenshot_frames: u64,
++    test_steps: Vec<Step>,
++}
++
++/// One step of `--test-steps`: at frame `frame`, run a command (as the menus do), take a
++/// screenshot or quit. A test aid for systems where the window cannot be driven reliably by
++/// pointer and keys (slow emulated frames); each command's result is logged.
++#[derive(Debug)]
++struct Step {
++    frame: u64,
++    run: Option<(String, serde_json::Value)>,
++    screenshot: Option<String>,
++    quit: bool,
++}
++
++fn read_steps(path: &str) -> Result<Vec<Step>, String> {
++    let text = std::fs::read_to_string(path).map_err(|e| format!("--test-steps {path}: {e}"))?;
++    let list: Vec<serde_json::Value> = serde_json::from_str(&text).map_err(|e| format!("--test-steps {path}: {e}"))?;
++    let mut steps = Vec::new();
++    for v in list {
++        let frame = v.get("frame").and_then(serde_json::Value::as_u64).ok_or_else(|| format!("--test-steps: a step without a frame: {v}"))?;
++        steps.push(Step {
++            frame,
++            run: v.get("run").and_then(serde_json::Value::as_str).map(|id| (id.to_owned(), v.get("params").cloned().unwrap_or(serde_json::json!({})))),
++            screenshot: v.get("screenshot").and_then(serde_json::Value::as_str).map(str::to_owned),
++            quit: v.get("quit").and_then(serde_json::Value::as_bool).unwrap_or(false),
++        });
++    }
++    steps.sort_by_key(|s| s.frame);
++    Ok(steps)
++}
++
++/// The Shell arguments after the renderer choice was taken out. Document names are resolved by
++/// DOS now, in the directory they were typed in (volumes, assigns, relative names, `/` parents).
++fn parse_args(args: Vec<String>) -> Result<Option<Options>, String> {
++    let mut o = Options { files: Vec::new(), sample: false, window: None, screenshot: None, screenshot_frames: 20, test_steps: Vec::new() };
++    let mut args = args.into_iter();
++    while let Some(a) = args.next() {
++        match a.as_str() {
++            "--help" | "-h" => {
++                println!("{USAGE}\n{}", launch::HELP);
++                return Ok(None);
++            }
++            "--version" | "-V" => {
++                println!("CADCraft {RELEASE} for AROS ({TARGET})");
++                return Ok(None);
++            }
++            "--sample" => o.sample = true,
++            "--control" | "--control-token" => return Err(format!("{a}: the control server is not available on AROS")),
++            "--window" => {
++                let v = args.next().unwrap_or_default();
++                let size = v.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)));
++                o.window = Some(size.ok_or_else(|| format!("--window: \"{v}\" is not <width>x<height>"))?);
++            }
++            "--screenshot" => o.screenshot = args.next(),
++            "--test-steps" => o.test_steps = read_steps(&args.next().unwrap_or_default())?,
++            "--screenshot-frames" => {
++                let v = args.next().unwrap_or_default();
++                o.screenshot_frames = v.parse().map_err(|_| format!("--screenshot-frames: \"{v}\" is not a number"))?;
++            }
++            "--" => {
++                for name in args.by_ref() {
++                    o.files.push(resolve(&name)?);
++                }
++            }
++            s if s.starts_with("--") => return Err(format!("unknown option \"{s}\"; see --help")),
++            name => o.files.push(resolve(name)?),
++        }
++    }
++    Ok(Some(o))
++}
++
++fn resolve(name: &str) -> Result<String, String> {
++    startup::absolute(name).map(|p| p.to_string_lossy().into_owned()).map_err(|e| format!("{name}: {e}"))
++}
++
++/// The settings folder (workspace, settings, autosave, LISP support, the log). AROS has no
++/// per-user home: `CADCraftData` in the program's drawer, like a portable install, or the folder
++/// named by CADCRAFT_CONFIG_DIR (set at start-up when the user did not). Empty: no folder.
++static CONFIG_DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
++
++fn config_dir() -> Option<PathBuf> {
++    CONFIG_DIR.get().cloned().flatten()
++}
++
++/// The saved settings: key to text, as the desktop app's storage holds them.
++fn read_settings(dir: &Path) -> serde_json::Map<String, serde_json::Value> {
++    std::fs::read(dir.join(SETTINGS_FILE)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
++}
++
++fn save_settings(dir: &Path, app: &CadApp) {
++    let settings = serde_json::json!({
++        cadcraft_ui_egui::options::PROFILE_KEY: app.profile_json(),
++        cadcraft_ui_egui::PREFS_KEY: app.prefs_json(),
++        cadcraft_ui_egui::autosave::PREFS_KEY: cadcraft_ui_egui::autosave::prefs_json(),
++    });
++    let written = std::fs::create_dir_all(dir)
++        .and_then(|()| serde_json::to_vec_pretty(&settings).map_err(std::io::Error::other))
++        .and_then(|b| std::fs::write(dir.join(SETTINGS_FILE), b));
++    if let Err(e) = written {
++        log::warn!("{SETTINGS_FILE}: {e}; settings not saved");
++    }
++}
++
++/// Stops with `message`: on the console and, for a Workbench start, in a requester.
++fn fail(message: &str) -> std::process::ExitCode {
++    startup::show_error("CADCraft", message);
++    std::process::ExitCode::from(20)
++}
++
++// The main task's stack: a Shell start gives the program the Shell's (40,960 bytes on AROS One),
++// which the window loop overruns; the start-up code runs the program on 16 MiB instead.
++aros_startup::minimum_stack!(16 << 20);
++
++fn main() -> std::process::ExitCode {
++    // Unix-style probes (settings, fonts) must not open "insert volume" requesters.
++    startup::quiet_dos();
++    // ABIv11's C library keeps one saved directory for the whole process and restores it on the
++    // main task at exit; whichever task changes directory first decides what is saved. This
++    // chdir, before any worker can make one, keeps the main task's own (Workbench start) lock.
++    if let Err(e) = std::env::set_current_dir(".") {
++        return fail(&format!("cannot keep the start directory: {e}"));
++    }
++    let start = match startup::startup(&[launch::KEY]) {
++        Ok(s) => s,
++        Err(e) => return fail(&e),
++    };
++    SHELL.store(!start.workbench, std::sync::atomic::Ordering::Relaxed);
++    // Settings beside the program unless the user chose a folder: a portable drawer.
++    match startup::program_dir() {
++        Ok(dir) => startup::set_default_env("CADCRAFT_CONFIG_DIR", &dir.join("CADCraftData")),
++        Err(e) => return fail(&format!("cannot find the program's drawer: {e}")),
++    }
++    // A folder the user named may be a DOS name (`Work:CAD/Settings`): the program works with
++    // -nix names, so it is made absolute by DOS rules once, here.
++    let named = std::env::var("CADCRAFT_CONFIG_DIR").ok().filter(|d| !d.trim().is_empty());
++    let _ = CONFIG_DIR.set(named.map(|d| startup::absolute(&d).unwrap_or_else(|_| PathBuf::from(d))));
++    let mut args: Vec<String> = if start.workbench { Vec::new() } else { std::env::args().skip(1).collect() };
++    let env = std::env::var("GUI_RENDERER").ok();
++    let choice = match launch::choose(&mut args, &start.tooltypes, env.as_deref(), egui_aros::RendererRequest::Auto) {
++        Ok(c) => c,
++        Err(e) => return fail(&e),
++    };
++    // Before the settings folder and the log: --help and --version leave nothing behind.
++    let mut options = match parse_args(args) {
++        Ok(Some(o)) => o,
++        Ok(None) => return std::process::ExitCode::SUCCESS,
++        Err(e) => return fail(&e),
++    };
++    if let Some(dir) = config_dir()
++        && let Err(e) = std::fs::create_dir_all(&dir)
++    {
++        eprintln!("cadcraft: cannot create the settings folder {}: {e}", dir.display());
++    }
++    install_logger();
++    options.files.extend(start.files);
++    log::info!("CADCraft {RELEASE} for AROS ({TARGET}); start from {}", if start.workbench { "Workbench" } else { "Shell" });
++    log::info!("GUI_RENDERER requested {} (from {})", launch::request_name(choice.request), choice.source.name());
++    let code = run(options, choice);
++    log::info!("shutdown: exit({code})");
++    std::process::ExitCode::from(code)
++}
++
++/// File format hooks for the engine, as the desktop app installs them.
++fn install_io() {
++    cadcraft_engine::cmd::file::set_io(cadcraft_engine::cmd::file::IoHooks {
++        read: |b, name| cadcraft_io::read(b, name).map_err(|e| e.to_string()),
++        write: |d, name| cadcraft_io::write(d, name).map_err(|e| e.to_string()),
++        plot: Some(|d, space, opts| cadcraft_io::plotter::plot(d, space, opts).map_err(|e| e.to_string())),
++    });
++    cadcraft_engine::cmd::file::set_image_decoder(|b| cadcraft_io::raster::decode(b).map_err(|e| e.to_string()));
++    cadcraft_engine::cmd::file::set_write_as(|d, name, o| {
++        cadcraft_io::write_with(d, name, &cadcraft_io::SaveOptions { version: o.version, binary: o.binary }).map_err(|e| e.to_string())
++    });
++    cadcraft_engine::cmd::file::set_entity_codec(cadcraft_engine::cmd::file::EntityCodec {
++        groups: cadcraft_io::entity_groups,
++        entity: cadcraft_io::entity_from_groups,
++    });
++}
++
++fn new_app(shared_window: services::SharedWindow, options: &Options, dir: Option<&Path>) -> (CadApp, workspace::Workspace, Option<String>) {
++    // RUST_LOG=debug: the start-up steps, to place a failure before the window opens.
++    log::debug!("start: app");
++    install_io();
++    cadcraft_engine::settings_dir::set(dir.map(Path::to_path_buf));
++    if let Some(dir) = dir {
++        cadcraft_ui_egui::fault::install_report_hook(dir.join(cadcraft_ui_egui::fault::REPORT_DIR));
++    }
++    let text = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
++    if let Some(name) = text("CADCRAFT_FONTALT") {
++        cadcraft_engine::fonts::ttf::set_font_alt(&name);
++    }
++    if let Some(list) = text("CADCRAFT_FONTFALLBACK") {
++        cadcraft_engine::fonts::ttf::set_fallback_fonts(&list);
++    }
++    // No DWG worker process: DWG files are read and written in this process.
++    let mut app = CadApp::new(cadcraft_engine::Session::empty(), services::aros(shared_window));
++    log::debug!("start: preferences");
++    // Mainline AROS (since 2026-11-06) leaves errno as it was when open() fails, so a workspace
++    // file that is not there yet could read as damaged and would then never be written. Asking
++    // for the file's metadata first leaves "not found" behind for that open. Harmless elsewhere.
++    if let Some(dir) = dir {
++        let _ = std::fs::metadata(dir.join("workspace.json"));
++    }
++    let (workspace, restored, workspace_error) = workspace::Workspace::load(dir);
++    if let Some(ui) = restored {
++        app.ui = ui;
++    }
++    if let Some(error) = &workspace_error {
++        log::warn!("workspace: {error}");
++        app.set_status(error);
++    }
++    // The interface language: CADCRAFT_LOCALE, else English until one is chosen in the app.
++    app.system_languages = text("CADCRAFT_LOCALE").into_iter().collect();
++    if let Some(dir) = dir {
++        let saved = read_settings(dir);
++        let get = |k: &str| saved.get(k).and_then(serde_json::Value::as_str);
++        if let Some(profile) = get(cadcraft_ui_egui::options::PROFILE_KEY) {
++            app.load_profile(profile);
++        }
++        if let Some(prefs) = get(cadcraft_ui_egui::PREFS_KEY) {
++            app.load_prefs(prefs);
++        }
++        if let Some(prefs) = get(cadcraft_ui_egui::autosave::PREFS_KEY) {
++            cadcraft_ui_egui::autosave::load_prefs(prefs);
++        }
++        app.enable_autosave(&dir.join("autosave"));
++        let support = dir.join("support");
++        if let Err(e) = std::fs::create_dir_all(&support) {
++            log::warn!("no LISP support folder {}: {e}", support.display());
++        }
++        app.session.set_lisp_support_dir(Some(support));
++    }
++    // No update check: releases come through the AROS package catalogue. No desktop-theme or
++    // animation watcher: AROS has neither setting, and a thread that polls for good would keep
++    // the pthread library's exit handler, which joins every thread, waiting.
++    if options.sample {
++        let _ = app.run("ui.sample", serde_json::json!({}));
++    }
++    log::debug!("start: {} file(s)", options.files.len());
++    for f in &options.files {
++        app.open_path(Path::new(f));
++    }
++    if app.session.docs.is_empty() {
++        let metric = app.session.settings.measureinit;
++        app.session.new_drawing(metric);
++    }
++    (app, workspace, workspace_error)
++}
++
++/// CADCraft as egui-aros runs it: the desktop app's eframe `logic`, `raw_input_hook` and `ui`,
++/// and the screenshot hook.
++struct Host {
++    app: CadApp,
++    workspace: workspace::Workspace,
++    workspace_error: Option<String>,
++    shared_window: services::SharedWindow,
++    ctx: egui::Context,
++    screenshot: Option<(String, u64)>,
++    done: bool,
++    renderer_logged: bool,
++    steps: std::collections::VecDeque<Step>,
++    frame: u64,
++    step_shot: Option<String>,
++    /// Per frame: (whole frame, raster + present), for the summary in the log at shutdown.
++    frame_costs: Vec<(Duration, Duration)>,
++}
++
++impl Host {
++    /// `ctx` is `None` only for the final attempt at exit.
++    fn persist_workspace(&mut self, ctx: Option<&egui::Context>) {
++        let result = match ctx {
++            None => self.workspace.save_on_exit(&self.app.ui),
++            Some(ctx) => self.workspace.save_if_changed(&self.app.ui, std::time::Instant::now()).map(|wait| {
++                if let Some(wait) = wait {
++                    ctx.request_repaint_after(wait);
++                }
++            }),
++        };
++        if let Err(error) = result {
++            if self.workspace_error.as_ref() != Some(&error) {
++                log::warn!("workspace: {error}");
++                self.app.set_status(format!("Workspace could not be saved: {error}"));
++                self.workspace_error = Some(error);
++            }
++        } else {
++            self.workspace_error = None;
++        }
++    }
++}
++
++/// One log line: frames, and the median, mean and longest frame and raster+present times.
++fn frame_summary(costs: &[(Duration, Duration)]) -> String {
++    let ms = |d: Duration| d.as_secs_f64() * 1000.0;
++    let stats = |mut v: Vec<f64>| {
++        v.sort_by(f64::total_cmp);
++        let mean = v.iter().sum::<f64>() / v.len().max(1) as f64;
++        let median = v.get(v.len() / 2).copied().unwrap_or(0.0);
++        let max = v.last().copied().unwrap_or(0.0);
++        format!("median {median:.0} ms, mean {mean:.0} ms, max {max:.0} ms")
++    };
++    if costs.is_empty() {
++        return "no frames".to_owned();
++    }
++    format!(
++        "{} frames; frame {}; raster+present {}",
++        costs.len(),
++        stats(costs.iter().map(|c| ms(c.0)).collect()),
++        stats(costs.iter().map(|c| ms(c.1)).collect())
++    )
++}
++
++impl egui_aros::App for Host {
++    fn started(&mut self, window: egui_aros::WindowHandle) {
++        *self.shared_window.borrow_mut() = Some(window);
++    }
++
++    // --screenshot needs the frame's pixels; with OpenGL they are read back only then.
++    fn wants_pixels(&self) -> bool {
++        self.screenshot.is_some() || self.step_shot.is_some()
++    }
++
++    fn raw_input_hook(&mut self, raw: &mut egui::RawInput) {
++        self.app.raw_input_hook(&self.ctx, raw);
++        cadcraft_ui_egui::cmdline::capture_tab(&self.ctx, raw);
++    }
++
++    fn logic(&mut self, ctx: &egui::Context) {
++        // --screenshot counts frames, and with no idle poll an untouched window draws none after
++        // it settles: keep drawing until the picture is taken.
++        if self.screenshot.is_some() && !self.done {
++            ctx.request_repaint();
++        }
++        // The app holds a close back itself: with unsaved changes it cancels the close and asks,
++        // then asks to quit once that is answered.
++        self.app.guarded_logic(ctx);
++        if ctx.current_pass_index() == 0 {
++            self.persist_workspace(Some(ctx));
++        }
++        if std::mem::take(&mut self.app.quit_requested) {
++            self.done = true;
++        }
++        while self.steps.front().is_some_and(|s| s.frame <= self.frame) {
++            let Some(step) = self.steps.pop_front() else { break };
++            if let Some((id, params)) = step.run {
++                let r = self.app.run(&id, params);
++                log::info!("test step {}: {id}: {}", step.frame, match &r { Ok(v) => format!("ok {v}"), Err(e) => format!("error {e}") });
++            }
++            if step.screenshot.is_some() {
++                self.step_shot = step.screenshot;
++            }
++            if step.quit {
++                log::info!("test step {}: quit", step.frame);
++                self.done = true;
++            }
++            ctx.request_repaint();
++        }
++        if !self.steps.is_empty() {
++            ctx.request_repaint();
++        }
++    }
++
++    fn ui(&mut self, ui: &mut egui::Ui) {
++        self.app.guarded_ui(ui);
++    }
++
++    fn quit_requested(&self) -> bool {
++        self.done
++    }
++
++    fn frame_done(&mut self, report: &egui_aros::FrameReport, renderer: &egui_aros::raster::Renderer) {
++        self.frame = report.frame;
++        let drawn = report.raster + report.present;
++        self.frame_costs.push((report.logic + report.ui + report.tessellate + report.textures + drawn, drawn));
++        // RUST_LOG=debug: one line per frame, to see what woke the loop and what the frame cost.
++        log::debug!(
++            "frame {} {}x{}: slept {:?} (timeout {:?}, by timeout {}), events {}, logic {:?} ui {:?} tessellate {:?} raster {:?} present {:?}, next repaint {:?}",
++            report.frame,
++            report.width,
++            report.height,
++            report.waited,
++            report.wait_timeout,
++            report.woke_by_timeout,
++            report.events,
++            report.logic,
++            report.ui,
++            report.tessellate,
++            report.raster,
++            report.present,
++            report.next_repaint
++        );
++        if let Some(path) = self.step_shot.take() {
++            match write_png(&path, renderer) {
++                Ok(()) => log::info!("test step: wrote {path}"),
++                Err(e) => log::error!("test step: screenshot {path}: {e}"),
++            }
++        }
++        if !self.renderer_logged {
++            self.renderer_logged = true;
++            log::info!("GUI_RENDERER using {}", egui_aros::renderer_name());
++        }
++        if let Some((path, frames)) = &self.screenshot
++            && report.frame >= *frames
++        {
++            match write_png(path, renderer) {
++                Ok(()) => log::info!("wrote {path}"),
++                Err(e) => log::error!("screenshot {path}: {e}"),
++            }
++            self.done = true;
++        }
++    }
++}
++
++fn run(mut options: Options, choice: launch::RendererChoice) -> u8 {
++    let (request, narrowed) = launch::effective(choice);
++    if let Some(why) = narrowed {
++        log::info!("GUI_RENDERER AUTO uses the CPU: {why}");
++    }
++    // As large as the screen allows, up to the desktop app's 1600x1000; --window sets it exactly.
++    let (sw, sh) = egui_aros::screen_size().map_or((1616, 1048), |(w, h)| (w as i32, h as i32));
++    let (w, h) = options.window.unwrap_or((1600.min(sw - 16).max(640), 1000.min(sh - 48).max(420)));
++    let (w, h) = (w.max(1) as u32, h.max(1) as u32);
++    let ctx = egui::Context::default();
++    let shared_window: services::SharedWindow = Rc::new(RefCell::new(None));
++    let dir = config_dir();
++    let (app, workspace, workspace_error) = new_app(shared_window.clone(), &options, dir.as_deref());
++    log::debug!("start: window");
++    let mut host = Host {
++        app,
++        workspace,
++        workspace_error,
++        shared_window,
++        ctx: ctx.clone(),
++        screenshot: options.screenshot.clone().map(|p| (p, options.screenshot_frames)),
++        done: false,
++        renderer_logged: false,
++        steps: options.test_steps.drain(..).collect(),
++        frame: 0,
++        step_shot: None,
++        frame_costs: Vec::new(),
++    };
++    let run_options = egui_aros::Options {
++        title: "CADCraft".to_owned(),
++        inner_size: (w, h),
++        min_inner_size: Some((640, 420)),
++        clear_color: [0x21, 0x28, 0x30],
++        // No idle poll: as eframe on the desktop, the loop sleeps until input, a repaint the app
++        // asks for, or a wake-up from another thread. A poll is a full frame, which the CPU
++        // renderer pays for in full.
++        idle_poll: None,
++        renderer: request,
++        ..Default::default()
++    };
++    // A panic below the app (renderer, window) unwinds to here on ABIv11, so the shutdown below
++    // still runs.
++    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| egui_aros::run(run_options, ctx, &mut host)))
++        .unwrap_or_else(|_| Err(egui_aros::Error::Window("the window loop stopped after a panic".into())));
++    if let Some(info) = egui_aros::renderer_info() {
++        log::info!("GUI_RENDERER {}", info.summary());
++    }
++    log::info!("frames: {}", frame_summary(&host.frame_costs));
++    // The services hold the window handle; let go of it with the window.
++    *host.shared_window.borrow_mut() = None;
++    let code = match result {
++        Ok(()) => 0,
++        Err(e) => {
++            log::error!("{e}");
++            if !SHELL.load(std::sync::atomic::Ordering::Relaxed) {
++                startup::show_error("CADCraft", &e.to_string());
++            }
++            20
++        }
++    };
++    // A normal exit: the workspace and settings are saved, and this run's autosave files are not
++    // needed (a crash leaves them for recovery). A screenshot run leaves the settings alone.
++    if host.screenshot.is_none() {
++        host.persist_workspace(None);
++        if let Some(dir) = &dir {
++            save_settings(dir, &host.app);
++        }
++    }
++    host.app.cancel_screenshots();
++    host.app.shutdown_autosave();
++    drop(host);
++    log::info!("shutdown: application state dropped");
++    // rayon's idle global workers (DWG, rendering) never end by themselves.
++    #[cfg(target_os = "aros")]
++    rayon_core::terminate_global_thread_pool();
++    // AROS's pthread library waits for every thread when the program exits: name the tasks still
++    // there, so a worker that does not end can be found in the log.
++    let threads: Vec<String> = startup::task_names().into_iter().filter(|t| t.starts_with("pthread")).collect();
++    log::info!("shutdown: threads: {}", if threads.is_empty() { "none".to_owned() } else { threads.join(", ").replace('\t', ":") });
++    code
++}
++
++fn write_png(path: &str, r: &egui_aros::raster::Renderer) -> Result<(), String> {
++    let img = image::RgbaImage::from_raw(r.width as u32, r.height as u32, r.frame.clone()).ok_or("frame size mismatch")?;
++    img.save_with_format(path, image::ImageFormat::Png).map_err(|e| e.to_string())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn args(list: &[&str]) -> Vec<String> {
++        list.iter().map(|s| (*s).to_owned()).collect()
++    }
++
++    #[test]
++    fn sample_and_window_are_read() {
++        let o = parse_args(args(&["--sample", "--window", "800x600"])).ok().flatten();
++        assert_eq!(o.as_ref().map(|o| o.sample), Some(true));
++        assert_eq!(o.and_then(|o| o.window), Some((800, 600)));
++    }
++
++    #[test]
++    fn unknown_options_and_the_control_server_are_refused() {
++        assert!(parse_args(args(&["--nope"])).is_err());
++        assert!(parse_args(args(&["--control", "9000"])).is_err());
++        assert!(parse_args(args(&["--window", "wide"])).is_err());
++    }
++}
+diff --git a/apps/cadcraft-aros/src/services.rs b/apps/cadcraft-aros/src/services.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..df9e021d4125e3110ffae1239714eceab8b7b6e4
+--- /dev/null
++++ b/apps/cadcraft-aros/src/services.rs
+@@ -0,0 +1,121 @@
++//! The platform services CADCraft uses on AROS: ASL file requesters. The same contract as the
++//! desktop app's `services` (apps/cadcraft/src/main.rs), without rfd, which has no AROS backend.
++//!
++//! Paths: the program runs in the -nix path mode; requesters speak DOS names, converted at this
++//! edge (egui_aros::startup).
++
++use std::cell::RefCell;
++use std::rc::Rc;
++
++use cadcraft_ui_egui::Services;
++use egui_aros::WindowHandle;
++use egui_aros::asl::{Select, request};
++use egui_aros::startup::{dos_to_nix, nix_to_dos};
++
++/// The window the requesters are parented to, set once the window is open (the requester runs on
++/// the main thread, modally, while the loop is inside the service call). The handle holds the
++/// window weakly: after it closes, a requester opens without a parent.
++pub type SharedWindow = Rc<RefCell<Option<WindowHandle>>>;
++
++/// Drawings File > Open reads: the desktop app's filters, as an AmigaDOS pattern (matched without
++/// regard to case).
++const DRAWINGS: &str = "#?.(dwg|dxf|dwt|svg|svgz)";
++const LISP: &str = "#?.lsp";
++const PGP: &str = "#?.pgp";
++/// The types Save As offers; a name of another type (or none) becomes .dxf, as in the desktop app.
++const SAVE_TYPES: [&str; 6] = ["dxf", "dwg", "dwt", "svg", "png", "pdf"];
++
++/// The file name part of a path (`a.dxf` for `/Work/Plans/a.dxf`).
++pub fn file_part(path: &str) -> &str {
++    path.rsplit('/').next().unwrap_or(path)
++}
++
++/// The drawer part of a -nix path (`/Work/Plans` for `/Work/Plans/a.dxf`).
++pub fn dir_part(path: &str) -> &str {
++    match path.rfind('/') {
++        Some(0) | None => "",
++        Some(i) => path.get(..i).unwrap_or(""),
++    }
++}
++
++/// The name Save As suggests: the stem of `suggested` with its type when it is one of
++/// [`SAVE_TYPES`], otherwise `.dxf`.
++pub fn save_name(suggested: &str) -> String {
++    let name = file_part(suggested);
++    let (stem, ext) = match name.rsplit_once('.') {
++        Some((stem, ext)) if !stem.is_empty() => (stem, ext.to_ascii_lowercase()),
++        _ => (name, String::new()),
++    };
++    let stem = if stem.is_empty() { "Drawing1" } else { stem };
++    let ext = if SAVE_TYPES.contains(&ext.as_str()) { ext } else { "dxf".to_owned() };
++    format!("{stem}.{ext}")
++}
++
++/// One file from an ASL requester, as a -nix path; `dir` is the -nix drawer it opens in.
++fn pick(window: &SharedWindow, select: Select, title: &str, dir: &str, file: &str, pattern: &str) -> Option<String> {
++    let win = window.borrow().clone()?;
++    let start = if dir.is_empty() { String::new() } else { nix_to_dos(dir).unwrap_or_default() };
++    let dos = request(&win, select, title, &start, file, pattern).into_iter().next()?;
++    match dos_to_nix(&dos) {
++        Ok(p) => Some(p),
++        Err(e) => {
++            log::warn!("requester: {dos}: {e}");
++            None
++        }
++    }
++}
++
++/// The services for this host.
++pub fn aros(window: SharedWindow) -> Services {
++    let last_dir: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
++    let (open_window, save_window, lisp_window, pgp_window) = (window.clone(), window.clone(), window.clone(), window);
++    let (open_dir, save_dir) = (last_dir.clone(), last_dir);
++    Services {
++        pick_open: Some(Box::new(move || {
++            let dir = open_dir.borrow().clone();
++            let path = pick(&open_window, Select::Open, "Open", &dir, "", DRAWINGS)?;
++            *open_dir.borrow_mut() = dir_part(&path).to_string();
++            Some(path)
++        })),
++        pick_save: Some(Box::new(move |suggested: &str| {
++            let dir = dir_part(suggested).to_string();
++            let dir = if dir.is_empty() { save_dir.borrow().clone() } else { dir };
++            let path = pick(&save_window, Select::Save, "Save As", &dir, &save_name(suggested), "")?;
++            *save_dir.borrow_mut() = dir_part(&path).to_string();
++            Some(path)
++        })),
++        // The requesters are modal on the main thread; no deferred picker.
++        start_pick: None,
++        pick_lisp: Some(Box::new(move |dir: &str| pick(&lisp_window, Select::Open, "Load AutoLISP File", dir, "", LISP))),
++        no_file_system: false,
++        pick_pgp: Some(Box::new(move |dir: Option<&str>| pick(&pgp_window, Select::Open, "Import Alias File", dir.unwrap_or_default(), "", PGP))),
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn path_parts() {
++        assert_eq!(file_part("/Work/Plans/a.dxf"), "a.dxf");
++        assert_eq!(dir_part("/Work/Plans/a.dxf"), "/Work/Plans");
++        assert_eq!(dir_part("/RAM"), "");
++        assert_eq!(dir_part("a.dxf"), "");
++    }
++
++    #[test]
++    fn save_keeps_known_types_and_defaults_to_dxf() {
++        assert_eq!(save_name("Drawing1"), "Drawing1.dxf");
++        assert_eq!(save_name("/RAM/Plan.DWG"), "Plan.dwg");
++        assert_eq!(save_name("Sheet.pdf"), "Sheet.pdf");
++        assert_eq!(save_name("Old.xyz"), "Old.dxf");
++        assert_eq!(save_name(""), "Drawing1.dxf");
++    }
++
++    #[test]
++    fn the_open_pattern_fits_the_requester() {
++        // asl.library copies the pattern into a 257-byte gadget without a length check.
++        assert!(DRAWINGS.len() <= 255);
++    }
++}

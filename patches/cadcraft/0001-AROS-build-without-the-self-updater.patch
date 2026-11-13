@@ -1,0 +1,108 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tomaszstaniak <68373859+tomaszstaniak@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 01:46:39 +0100
+Subject: [PATCH] AROS: build without the self-updater
+
+Releases for AROS come through the AROS package catalogue, and craft-update's HTTPS stack (hyper, rustls, aws-lc-sys with its C/CMake build) has no AROS build. The updater is left out on target_os = "aros" the way the web build leaves it out; Help > Check for Updates says where AROS updates come from.
+---
+ crates/ui-egui/Cargo.toml   |  4 +++-
+ crates/ui-egui/src/lib.rs   | 12 ++++++------
+ crates/ui-egui/src/menus.rs |  8 +++++++-
+ 3 files changed, 16 insertions(+), 8 deletions(-)
+
+diff --git a/crates/ui-egui/Cargo.toml b/crates/ui-egui/Cargo.toml
+index 916ab645641e9769d40c194fd50a459ec7fe891d..cf19946c56263422f9dc5199526274ca84810d40 100644
+--- a/crates/ui-egui/Cargo.toml
++++ b/crates/ui-egui/Cargo.toml
+@@ -29,7 +29,9 @@ chrono = { workspace = true }
+ image = { workspace = true }
+ web-time = { workspace = true }
+ 
+-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
++# AROS: no self-update. Releases come through the AROS package catalogue, and the updater's
++# HTTPS stack (hyper, rustls, aws-lc-sys with its C/CMake build) has no AROS build.
++[target.'cfg(not(any(target_arch = "wasm32", target_os = "aros")))'.dependencies]
+ craft-update = { workspace = true }
+ 
+ [dev-dependencies]
+diff --git a/crates/ui-egui/src/lib.rs b/crates/ui-egui/src/lib.rs
+index 41787b002f0d289c243d889de1aaa27b980fd84e..3e8d2d2d4b49ac49e75ef04d0ad4598c2205c555 100644
+--- a/crates/ui-egui/src/lib.rs
++++ b/crates/ui-egui/src/lib.rs
+@@ -10,7 +10,7 @@
+ 
+ /// CADCraft as craft-update knows it, with its 128 px icon and accent colour: the update
+ /// prompt shows both, and an AppImage's menu entry gets the icon.
+-#[cfg(not(target_arch = "wasm32"))]
++#[cfg(not(any(target_arch = "wasm32", target_os = "aros")))]
+ pub const UPDATE_APP: craft_update::app::App = craft_update::app::App {
+     icon_png: Some(include_bytes!("../../../assets/app-icon/hicolor/128x128/apps/ai.storyteller.cadcraft.png")),
+     accent: Some([0x3e, 0xa6, 0xe8]),
+@@ -65,7 +65,7 @@ pub mod quick;
+ pub mod save_loss;
+ pub mod shortcut_menus;
+ pub mod theme;
+-#[cfg(not(target_arch = "wasm32"))]
++#[cfg(not(any(target_arch = "wasm32", target_os = "aros")))]
+ pub mod updates_ui;
+ pub mod viewcube;
+ pub mod vpscale;
+@@ -368,7 +368,7 @@ pub struct CadApp {
+     /// A file dialog shown with [`Services::start_pick`]: its answer, and what to do with it.
+     pending_pick: Option<PendingPick>,
+     /// The startup update check and its prompt (desktop; [`updates_ui`]).
+-    #[cfg(not(target_arch = "wasm32"))]
++    #[cfg(not(any(target_arch = "wasm32", target_os = "aros")))]
+     pub updates_rt: updates_ui::Runtime,
+ }
+ 
+@@ -425,7 +425,7 @@ impl CadApp {
+             alias_dlg: None,
+             hatch_dlg: None,
+             bedit: bedit::State::default(),
+-            #[cfg(not(target_arch = "wasm32"))]
++            #[cfg(not(any(target_arch = "wasm32", target_os = "aros")))]
+             updates_rt: updates_ui::Runtime::default(),
+             pending_pick: None,
+         }
+@@ -895,7 +895,7 @@ impl CadApp {
+         self.session.lisp_tick();
+         // Time-based and idempotent by its own deadline; keeps autosave alive while hidden.
+         self.autosave_tick(ctx);
+-        #[cfg(not(target_arch = "wasm32"))]
++        #[cfg(not(any(target_arch = "wasm32", target_os = "aros")))]
+         updates_ui::tick(self, ctx);
+         if !self.synthetic.is_empty() || self.synthetic_injected {
+             request_paint_while_hidden(ctx);
+@@ -1103,7 +1103,7 @@ impl CadApp {
+             }
+         });
+         self.opening.show(ui.ctx());
+-        #[cfg(not(target_arch = "wasm32"))]
++        #[cfg(not(any(target_arch = "wasm32", target_os = "aros")))]
+         updates_ui::show(self, ui.ctx());
+         dialogs::show(self, ui.ctx());
+         palettes::patterns::prompt_picker(self, ui.ctx());
+diff --git a/crates/ui-egui/src/menus.rs b/crates/ui-egui/src/menus.rs
+index e0b3c50dfca81be0303959836940bee5431c378e..b66e9f2aa33d16f7e6859fc27c6194110101e125 100644
+--- a/crates/ui-egui/src/menus.rs
++++ b/crates/ui-egui/src/menus.rs
+@@ -533,11 +533,17 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
+             app.ui.dialog = Some(id.trim_start_matches("ui.dialog.").to_string());
+             Ok(Value::Null)
+         }
+-        #[cfg(not(target_arch = "wasm32"))]
++        #[cfg(not(any(target_arch = "wasm32", target_os = "aros")))]
+         "ui.updates.check" => {
+             crate::updates_ui::check_now(app);
+             Ok(Value::Null)
+         }
++        // AROS: releases come through the AROS package catalogue (no self-update there).
++        #[cfg(target_os = "aros")]
++        "ui.updates.check" => {
++            app.set_status("Updates for AROS come through the AROS package manager.");
++            Ok(Value::Null)
++        }
+         "ui.dialog.close" => {
+             app.ui.dialog = None;
+             Ok(Value::Null)

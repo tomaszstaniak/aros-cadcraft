@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: tomaszstaniak <68373859+tomaszstaniak@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 02:13:19 +0100
+Subject: [PATCH] engine: the build target in the version line when no commit
+ is named
+
+build_version() prints `dev` unless CADCRAFT_BUILD_SHA is set at build time. The AROS builds are made from a pinned tag by the port's tools, which name the target in CADCRAFT_BUILD_TARGET; that name is shown instead of `dev`, so --version tells an ABIv11 program from a mainline one. Builds that set neither are unchanged.
+---
+ crates/engine/src/lib.rs | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/crates/engine/src/lib.rs b/crates/engine/src/lib.rs
+index 2e02831dd3626dfc717a8b887c99fa93f9f53b69..79aa9d87233482becbe2e53cc11cd0e538977e25 100644
+--- a/crates/engine/src/lib.rs
++++ b/crates/engine/src/lib.rs
+@@ -68,10 +68,13 @@ pub use settings::Settings;
+ pub use view::{ModelTile, ModelTiles, View};
+ 
+ /// `<version> (<commit>)`, what `--version` prints after the program name in the app and the CLI.
+-/// The commit comes from `CADCRAFT_BUILD_SHA` at build time, `dev` without it.
++/// The commit comes from `CADCRAFT_BUILD_SHA` at build time; without it the build target a
++/// packager names in `CADCRAFT_BUILD_TARGET` (the AROS builds do), else `dev`.
+ pub fn build_version() -> &'static str {
+-    static VERSION: std::sync::LazyLock<String> =
+-        std::sync::LazyLock::new(|| format!("{} ({})", env!("CARGO_PKG_VERSION"), option_env!("CADCRAFT_BUILD_SHA").unwrap_or("dev")));
++    static VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
++        let build = option_env!("CADCRAFT_BUILD_SHA").or(option_env!("CADCRAFT_BUILD_TARGET")).unwrap_or("dev");
++        format!("{} ({build})", env!("CARGO_PKG_VERSION"))
++    });
+     &VERSION
+ }
+ 

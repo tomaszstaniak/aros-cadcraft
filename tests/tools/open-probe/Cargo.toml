@@ -1,0 +1,17 @@
+[package]
+name = "cadcraft-open-probe"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Native check: the error a missing file gives when it is opened after another call left an error code behind"
+
+[[bin]]
+name = "open-probe"
+path = "src/main.rs"
+
+[dependencies]
+# Supplied by the port's build (scripts/craft.py build --tool) for each AROS target.
+aros-startup = "0.1"
+
+[workspace]

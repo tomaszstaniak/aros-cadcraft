@@ -1,0 +1,37 @@
+.KEY RUNDIR/A,MACHINE/A
+.BRA [
+.KET ]
+; CADCraft package check with apkg from a local index. Put into RAM:t: apkg (for this system),
+; cc.zip (the package), idx.json (a test index naming it), steps-pkg.json.
+; Then: Execute RAM:t/run-pkg <results directory> <machine name>. Everything stays under RAM:.
+FailAt 21
+Protect RAM:t/apkg +e
+MakeDir RAM:pk
+MakeDir RAM:pk/cache
+Copy RAM:t/cc.zip RAM:pk/cache/cadcraft.zip
+RAM:t/apkg --version >[RUNDIR]/apkg-version.txt
+RAM:t/apkg --root RAM:pk --machine [MACHINE] --index RAM:t/idx.json show cadcraft >[RUNDIR]/show.txt
+Echo $RC >[RUNDIR]/show.rc
+RAM:t/apkg --root RAM:pk --machine [MACHINE] --index RAM:t/idx.json install cadcraft --yes >[RUNDIR]/install.txt
+Echo $RC >[RUNDIR]/install.rc
+RAM:t/apkg --root RAM:pk --machine [MACHINE] --index RAM:t/idx.json verify cadcraft >[RUNDIR]/verify.txt
+Echo $RC >[RUNDIR]/verify.rc
+List RAM:pk ALL >[RUNDIR]/installed.txt
+RAM:pk/CADCraft/cadcraft-cli --version >[RUNDIR]/cli-version.txt
+Echo $RC >[RUNDIR]/cli-version.rc
+RAM:pk/CADCraft/cadcraft-cli sample floorplan RAM:t/floorplan.dwg >[RUNDIR]/cli-sample.txt
+Echo $RC >[RUNDIR]/cli-sample.rc
+SetEnv RUST_LOG info
+RAM:pk/CADCraft/CADCraft --window 780x540 --test-steps RAM:t/steps-pkg.json RAM:t/floorplan.dwg
+Echo $RC >[RUNDIR]/gui.rc
+RAM:pk/CADCraft/cadcraft-cli info RAM:t/pkg-saved.dxf --compact >[RUNDIR]/saved-info.txt
+Echo $RC >[RUNDIR]/saved-info.rc
+; A second start: the settings and the panel layout written by the first are read back.
+RAM:pk/CADCraft/CADCraft --window 780x540 --test-steps RAM:t/steps-pkg2.json
+Echo $RC >[RUNDIR]/gui2.rc
+List RAM:pk/CADCraft/CADCraftData >[RUNDIR]/data.txt
+Copy RAM:pk/CADCraft/CADCraftData/CADCraft.log [RUNDIR]/CADCraft.log
+Copy RAM:pk/CADCraft/BUILD.txt [RUNDIR]/BUILD.txt
+Copy RAM:t/pkg-a.png [RUNDIR]/pkg-a.png
+Copy RAM:t/pkg-b.png [RUNDIR]/pkg-b.png
+Echo "done" >[RUNDIR]/pkg-done.txt

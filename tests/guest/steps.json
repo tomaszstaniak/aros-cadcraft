@@ -1,0 +1,12 @@
+[
+  {"frame": 20, "run": "line", "params": {"points": [[0, 0], [60, 40]]}},
+  {"frame": 22, "run": "circle", "params": {"center": [30, 20], "radius": 12}},
+  {"frame": 24, "run": "zoom", "params": {"mode": "extents"}},
+  {"frame": 28, "screenshot": "/RAM/cc/steps-a.png"},
+  {"frame": 30, "run": "saveas", "params": {"path": "/RAM/cc/gui-saved.dxf"}},
+  {"frame": 32, "run": "undo", "params": {}},
+  {"frame": 34, "run": "redo", "params": {}},
+  {"frame": 36, "run": "qsave", "params": {}},
+  {"frame": 40, "screenshot": "/RAM/cc/steps-b.png"},
+  {"frame": 44, "quit": true}
+]

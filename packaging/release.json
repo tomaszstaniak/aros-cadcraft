@@ -23,7 +23,7 @@
   ],
   "targets": {
     "aros-x86_64-abiv11-pc": {
-      "system": "AROS x86_64, ABIv11 (AROS One 1.3)",
+      "system": "AROS x86_64, ABIv11 distributions",
       "sdk": "x86_64 ABIv11 SDK (deadwood2/AROS)",
       "notice": "notices/aros-x86_64-abiv11-pc.txt",
       "build": {
@@ -32,8 +32,8 @@
         "features": []
       },
       "limitations": [
-        "- OpenGL: AROS One 1.3 has only Mesa's software renderer, so AUTO uses",
-        "  CPU. GPU works there and is several times slower than CPU.",
+        "- OpenGL: tested on AROS One 1.3, which has only Mesa's software renderer,",
+        "  so AUTO uses CPU there. GPU works and is several times slower than CPU.",
         "- Tested from a Shell with scripted edits; typing, menus, the file",
         "  requester and the question about unsaved changes were tested on mainline",
         "  AROS only."

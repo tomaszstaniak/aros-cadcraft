@@ -6,7 +6,7 @@ The first AROS release of CADCraft, a 2D CAD drafting program. It opens and save
 
 | File | System |
 |---|---|
-| `CADCraft-0.20.1-aros-x86_64-abiv11-pc.zip` | AROS x86_64, ABIv11 (AROS One 1.3) |
+| `CADCraft-0.20.1-aros-x86_64-abiv11-pc.zip` | AROS x86_64, ABIv11 distributions |
 | `CADCraft-0.20.1-aros-x86_64-abiv1-pc.zip` | AROS x86_64, mainline ABIv1 (nightly 2026-11-10) |
 | `CADCraft-0.20.1-aros-aarch64-abiv1-raspi.zip` | AROS on Raspberry Pi, AArch64 ABIv1 (mainline nightly 2026-11-10) |
 | `CADCraft-0.20.1-source.zip` | Port sources, patches, pinned inputs and build recipe |
@@ -28,7 +28,7 @@ Unpack the archive for your system anywhere writable and double-click CADCraft. 
 
 `CADCraft --version` and the first line of `CADCraft.log` name the build; please include them when you report a problem.
 
-Tested on AROS One 1.3 (ABIv11), on mainline x86_64 AROS nightly 2026-11-10 and on the Raspberry Pi nightly 2026-11-10 in an emulator, not on a physical Raspberry Pi. On all three: installing, verifying and removing the package with the package manager (settings kept), starting from a Shell, opening DXF and DWG drawings, drawing, undo and redo, Save As and Save over the same file, the panel layout kept between starts, closing, and the command-line program (DXF, DWG, PNG, PDF and SVG output, command scripts, the MCP handshake). On mainline x86_64 and the Raspberry Pi also a start as a Workbench program. On mainline x86_64 also typing commands, the menus, the Save As requester and the question about unsaved changes. On the two x86_64 systems also a start with `GPU` (Mesa's software renderer).
+Tested on an ABIv11 distribution (AROS One 1.3), on mainline x86_64 AROS nightly 2026-11-10 and on the Raspberry Pi nightly 2026-11-10 in an emulator, not on a physical Raspberry Pi. On all three: installing, verifying and removing the package with the package manager (settings kept), starting from a Shell, opening DXF and DWG drawings, drawing, undo and redo, Save As and Save over the same file, the panel layout kept between starts, closing, and the command-line program (DXF, DWG, PNG, PDF and SVG output, command scripts, the MCP handshake). On mainline x86_64 and the Raspberry Pi also a start as a Workbench program. On mainline x86_64 also typing commands, the menus, the Save As requester and the question about unsaved changes. On the two x86_64 systems also a start with `GPU` (Mesa's software renderer).
 
 ## Known limitations
 

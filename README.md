@@ -8,7 +8,7 @@ An AROS port of [CADCraft](https://github.com/storytold/cadcraft), a 2D CAD draf
 
 | Package | System |
 |---|---|
-| `CADCraft-0.20.1-aros-x86_64-abiv11-pc.zip` | AROS x86_64, ABIv11 (AROS One 1.3) |
+| `CADCraft-0.20.1-aros-x86_64-abiv11-pc.zip` | AROS x86_64, ABIv11 distributions |
 | `CADCraft-0.20.1-aros-x86_64-abiv1-pc.zip` | AROS x86_64, mainline ABIv1 (nightly 2026-11-10) |
 | `CADCraft-0.20.1-aros-aarch64-abiv1-raspi.zip` | AROS on Raspberry Pi, AArch64 ABIv1 (mainline nightly 2026-11-10) |
 

@@ -2,14 +2,16 @@
   "id": "posixc-open-errno-per-thread",
   "upstream": "https://github.com/aros-development-team/AROS",
   "base": "c46ac7208ffc951b4d43d484e09385cb9c869888",
-  "status": "candidate",
-  "v1_applicability": "Defect seen on the official x86_64 nightly 20261110 (posixc.library 0.41, stdc.library 0.53) and read in master at the base commit. The fix is not built and not run.",
+  "status": "upstream",
+  "v1_applicability": "Defect seen on the official x86_64 nightly 20261110 (posixc.library 0.41, stdc.library 0.53); fix built and run against that nightly.",
   "checked_upstream": "c46ac7208ffc951b4d43d484e09385cb9c869888",
   "checked_date": "2026-11-13",
   "validation": [
-    "Before: the test source open_errno.c, compiled standalone with x86_64-aros-gcc 10.5.0 against the nightly 20261110 SDK (not an in-tree build), fails at its first open() check on the nightly, twice in one boot, and leaves no files.",
-    "Before: tests/tools/open-probe (Rust) reports os error 0, then 17, for a missing file on the same system; ABIv11 reports NotFound.",
-    "After: none. posixc.library with the fix has not been built."
+    "In-tree build at the submitted revision (pc-x86_64, x86_64-aros-gcc 10.5.0): compiler-posixc and test-crt-posixc-open-errno-quick, no diagnostics in the changed files. The non-quick test target was not completed: its kernel prerequisite stopped in an unrelated module in the fresh build tree.",
+    "Guest, nightly 20261110 in QEMU, module replacement with cold boots: with the rebuilt posixc.library the test passes all 8 checks twice (return code 0); with the system's library restored it fails at the first ENOENT check twice (return code 5). The restored file has the SHA-256 of the saved original.",
+    "Rust probe tests/tools/open-probe: os error 0, then 17, for a missing file on the nightly; NotFound on ABIv11."
   ],
-  "next_action": "Build workbench-libs-posixc and test-crt-posixc-open-errno in a mainline build tree at the submitted revision, run the test twice on a v1 guest with the rebuilt posixc.library (original restored afterwards), then open one pull request with the fix and the test."
+  "next_action": "Open pull request, awaiting review. Remove the libc-aros workaround in the Craft tools once the mainline SDK in use contains the fix.",
+  "submission_url": "https://github.com/aros-development-team/AROS/pull/2250",
+  "submission_revision": "945801953c"
 }

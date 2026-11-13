@@ -2,6 +2,8 @@
   "name": "CADCraft",
   "version": "0.20.1",
   "release": "0.20.1",
+  "revision": 1,
+  "revision_programs": "rebuilt",
   "upstream_version": "0.20.1 (tag v0.20.1, 7526dc62)",
   "drawer": "CADCraft",
   "stack": 16777216,
@@ -9,7 +11,7 @@
     "GUI_RENDERER=AUTO"
   ],
   "icon_source": "work:assets/app-icon/hicolor/64x64/apps/ai.storyteller.cadcraft.png",
-  "source_archive": "CADCraft-0.20.1-source.zip",
+  "source_archive": "CADCraft-0.20.1-r1-source.zip",
   "source_archive_exclude": [
     "AGENTS.md",
     "CLAUDE.md",
@@ -40,7 +42,7 @@
       ]
     },
     "aros-x86_64-abiv1-pc": {
-      "system": "AROS x86_64, mainline ABIv1 (nightly 2026-11-10)",
+      "system": "AROS x86_64, mainline ABIv1 (nightly 2026-11-06 or later)",
       "sdk": "x86_64 mainline ABIv1 SDK of nightly 2026-11-10",
       "notice": "notices/aros-x86_64-abiv1-pc.txt",
       "build": {
@@ -49,12 +51,16 @@
         "features": []
       },
       "limitations": [
+        "- AUTO uses CPU on this system: a program that has opened OpenGL leaves its",
+        "  log file in use after it ends, and the Shell it ran in stops redirecting",
+        "  the output of later programs (seen on nightly 2026-11-10). GPU opens",
+        "  OpenGL all the same.",
         "- OpenGL: with Mesa's software renderer AUTO uses CPU. Hardware OpenGL",
         "  drivers have not been tested in this release."
       ]
     },
     "aros-aarch64-abiv1-raspi": {
-      "system": "AROS on Raspberry Pi, AArch64 ABIv1 (mainline nightly 2026-11-10)",
+      "system": "AROS on Raspberry Pi, AArch64 ABIv1 (nightly 2026-11-06 or later)",
       "sdk": "Raspberry Pi AArch64 ABIv1 SDK of nightly 2026-11-10",
       "notice": "notices/aros-aarch64-abiv1-raspi.txt",
       "build": {
@@ -71,8 +77,8 @@
     }
   },
   "limitations": [
-    "- Every change redraws the whole window. On slow machines and in emulators",
-    "  the interface follows with a delay.",
+    "- Changes of the whole window (zooming, panning, opening a dialog) redraw all",
+    "  of it; on slow machines and in emulators these follow with a delay.",
     "- The drawing area is drawn by the interface renderer, not by CADCraft's own",
     "  GPU canvas, so large drawings pan and zoom slowly.",
     "- All drawings share one window, and floating panels stay inside it.",

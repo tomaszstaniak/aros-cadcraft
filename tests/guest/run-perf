@@ -1,0 +1,19 @@
+.KEY RUNDIR/A
+.BRA [
+.KET ]
+; Frame costs: the sample drawing and the scripted edit with one log line per frame
+; (tessellate, raster and present apart). Payload in RAM:cc: CADCraft, steps.json.
+; Execute RAM:cc/run-perf <results directory>
+FailAt 21
+Protect RAM:cc/CADCraft +e
+SetEnv RUST_LOG debug
+SetEnv CADCRAFT_CONFIG_DIR RAM:cc/data
+SetEnv CADCRAFT_LOG RAM:cc/log-perf-1.txt
+RAM:cc/CADCraft --window 1000x700 --sample --test-steps RAM:cc/steps.json
+Echo $RC >[RUNDIR]/perf-1.rc
+SetEnv CADCRAFT_LOG RAM:cc/log-perf-2.txt
+RAM:cc/CADCraft --window 780x540 --sample --test-steps RAM:cc/steps.json
+Echo $RC >[RUNDIR]/perf-2.rc
+Copy RAM:cc/log-perf-1.txt [RUNDIR]/log-perf-1.txt
+Copy RAM:cc/log-perf-2.txt [RUNDIR]/log-perf-2.txt
+Echo "done" >[RUNDIR]/perf-done.txt

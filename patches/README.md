@@ -4,6 +4,7 @@
 |---|---|---|
 | `cadcraft/` | storytold/cadcraft at the pin in `upstreams.json`; order in `series` | `scripts/craft.py materialize` (`git am`) |
 | `crates/` | crates.io crates named in `crates/crates.json`; the patches, registry checksums and patched-tree hashes are in the shared set of the pinned Craft tools (egui-aros `tools/craft/crates`); this port has no crate patches of its own | `scripts/craft.py build` |
+| `aros-mainline-posixc-open-errno/` | mainline AROS at the commit in its `metadata.json`: a candidate fix with its test for `open()` not setting the caller's errno; not built yet, not sent | nothing |
 | `aros-pthread/` | deadwood2/AROS `compiler/pthread` at the commit named for the target in the pinned tools' `craftconfig.py` (ABIv11 target only) | `scripts/craft.py build` |
 
 Two more sets are applied by every build and kept once in the pinned Craft tools (egui-aros

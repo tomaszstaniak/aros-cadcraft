@@ -2,7 +2,7 @@
   {"frame": 20, "run": "circle", "params": {"center": [100, 100], "radius": 40}},
   {"frame": 22, "run": "zoom", "params": {"mode": "extents"}},
   {"frame": 24, "run": "ui.toggle.toolsets", "params": {}},
-  {"frame": 28, "screenshot": "/RAM/t/pkg-a.png"},
-  {"frame": 30, "run": "saveas", "params": {"path": "/RAM/t/pkg-saved.dxf"}},
+  {"frame": 28, "screenshot": "/RAM/ctest/pkg-a.png"},
+  {"frame": 30, "run": "saveas", "params": {"path": "/RAM/ctest/pkg-saved.dxf"}},
   {"frame": 34, "quit": true}
 ]

@@ -1,4 +1,4 @@
-# CADCraft 0.20.1 for AROS, revision 1
+# CADCraft 0.20.1 for AROS, revision 2
 
 The AROS port of CADCraft 0.20.1, a 2D CAD drafting program. It opens and saves DWG and DXF drawings, opens SVG, and exports PDF, SVG and PNG. It is built for three AROS systems.
 
@@ -6,14 +6,26 @@ The AROS port of CADCraft 0.20.1, a 2D CAD drafting program. It opens and saves 
 
 | File | System |
 |---|---|
-| `CADCraft-0.20.1-r1-aros-x86_64-abiv11-pc.zip` | AROS x86_64, ABIv11 distributions |
-| `CADCraft-0.20.1-r1-aros-x86_64-abiv1-pc.zip` | AROS x86_64, mainline ABIv1 (nightly 2026-11-06 or later) |
-| `CADCraft-0.20.1-r1-aros-aarch64-abiv1-raspi.zip` | AROS on Raspberry Pi, AArch64 ABIv1 (mainline nightly 2026-11-06 or later) |
-| `CADCraft-0.20.1-r1-source.zip` | Port sources, patches, pinned inputs and build recipe |
+| `CADCraft-0.20.1-r1-aros-x86_64-abiv11-pc.zip` | AROS x86_64, ABIv11 distributions (unchanged, from the 0.20.1-r1 release) |
+| `CADCraft-0.20.1-r2-aros-x86_64-abiv1-pc.zip` | AROS x86_64, mainline ABIv1 (nightly 2026-11-24 or later) |
+| `CADCraft-0.20.1-r2-aros-aarch64-abiv1-raspi.zip` | AROS on Raspberry Pi, AArch64 ABIv1 (mainline nightly 2026-11-24 or later) |
+| `CADCraft-0.20.1-r2-source.zip` | Port sources, patches, pinned inputs and build recipe |
 
 Each package runs only on the system it was built for. `SHA256SUMS` lists the checksums. The packages can also be installed with the AROS package manager: `apkg install cadcraft`.
 
-## What is new in revision 1
+## What is new in revision 2
+
+Revision 2 is a rebuild of the mainline x86_64 and Raspberry Pi packages for AROS nightly builds from 2026-11-24 on. The programs have no other changes. `CADCraft --version` prints `0.20.1-r2`.
+
+- The nightly of 2026-11-24 changed a system structure that programs are built against. Packages built before it do not start on that nightly or a later one, and these packages do not start on an earlier one.
+- On a nightly before 2026-11-24, keep CADCraft 0.20.1-r1.
+- The ABIv11 package is not affected and stays at 0.20.1-r1.
+
+With the package manager: `apkg upgrade cadcraft`. Settings and data in `CADCraftData` are kept.
+
+Checked for this revision on the mainline x86_64 nightly of 2026-11-24, in an emulator: installation and verification with the package manager and a start from Workbench. The Raspberry Pi package was built the same way and not run for this revision.
+
+## What was new in revision 1
 
 Revision 1 has the same CADCraft 0.20.1 with changes of the AROS port. `CADCraft --version` prints `0.20.1-r1`.
 
